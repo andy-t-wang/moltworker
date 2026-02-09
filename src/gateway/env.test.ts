@@ -106,6 +106,7 @@ describe('buildEnvVars', () => {
     const env = createMockEnv({
       TELEGRAM_BOT_TOKEN: 'tg-token',
       TELEGRAM_DM_POLICY: 'pairing',
+      TELEGRAM_DM_ALLOW_FROM: '12345,67890',
       DISCORD_BOT_TOKEN: 'discord-token',
       DISCORD_DM_POLICY: 'open',
       SLACK_BOT_TOKEN: 'slack-bot',
@@ -115,6 +116,7 @@ describe('buildEnvVars', () => {
 
     expect(result.TELEGRAM_BOT_TOKEN).toBe('tg-token');
     expect(result.TELEGRAM_DM_POLICY).toBe('pairing');
+    expect(result.TELEGRAM_DM_ALLOW_FROM).toBe('12345,67890');
     expect(result.DISCORD_BOT_TOKEN).toBe('discord-token');
     expect(result.DISCORD_DM_POLICY).toBe('open');
     expect(result.SLACK_BOT_TOKEN).toBe('slack-bot');

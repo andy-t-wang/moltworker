@@ -55,6 +55,16 @@ export interface ApproveAllResponse {
   error?: string;
 }
 
+export interface PairingApproveResponse {
+  success: boolean;
+  channel: string;
+  code: string;
+  message?: string;
+  stdout?: string;
+  stderr?: string;
+  error?: string;
+}
+
 export class AuthError extends Error {
   constructor(message: string) {
     super(message);
@@ -99,6 +109,18 @@ export async function approveAllDevices(): Promise<ApproveAllResponse> {
   return apiRequest<ApproveAllResponse>('/devices/approve-all', {
     method: 'POST',
   });
+}
+
+export async function approvePairingCode(
+  channel: string,
+  code: string,
+): Promise<PairingApproveResponse> {
+  return apiRequest<PairingApproveResponse>(
+    `/pairing/${encodeURIComponent(channel)}/${encodeURIComponent(code)}/approve`,
+    {
+      method: 'POST',
+    },
+  );
 }
 
 export interface RestartGatewayResponse {

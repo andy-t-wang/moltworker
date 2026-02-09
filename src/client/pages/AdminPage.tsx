@@ -1,8 +1,9 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, type FormEvent } from 'react';
 import {
   listDevices,
   approveDevice,
   approveAllDevices,
+  approvePairingCode,
   restartGateway,
   getStorageStatus,
   triggerSync,
@@ -54,6 +55,9 @@ export default function AdminPage() {
   const [actionInProgress, setActionInProgress] = useState<string | null>(null);
   const [restartInProgress, setRestartInProgress] = useState(false);
   const [syncInProgress, setSyncInProgress] = useState(false);
+  const [pairingCode, setPairingCode] = useState('');
+  const [pairingChannel, setPairingChannel] = useState('telegram');
+  const [pairingInProgress, setPairingInProgress] = useState(false);
 
   const fetchDevices = useCallback(async () => {
     try {
@@ -172,6 +176,33 @@ export default function AdminPage() {
     }
   };
 
+  const handleApprovePairingCode = async (event: FormEvent) => {
+    event.preventDefault();
+
+    const normalizedCode = pairingCode.toUpperCase().replace(/[^A-Z0-9]/g, '');
+    if (!normalizedCode) {
+      setError('Enter a pairing code from your chat message first.');
+      return;
+    }
+
+    setPairingInProgress(true);
+    try {
+      setError(null);
+      const result = await approvePairingCode(pairingChannel, normalizedCode);
+      if (!result.success) {
+        setError(result.error || result.stderr || result.message || 'Pairing code approval failed');
+        return;
+      }
+
+      setPairingCode('');
+      await fetchDevices();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to approve pairing code');
+    } finally {
+      setPairingInProgress(false);
+    }
+  };
+
   return (
     <div className="devices-page">
       {error && (
@@ -244,6 +275,43 @@ export default function AdminPage() {
         <p className="hint">
           Restart the gateway to apply configuration changes or recover from errors. All connected
           clients will be temporarily disconnected.
+        </p>
+      </section>
+
+      <section className="devices-section">
+        <div className="section-header">
+          <h2>Approve Chat Pairing Code</h2>
+        </div>
+        <form className="pairing-form" onSubmit={handleApprovePairingCode}>
+          <select
+            className="pairing-select"
+            value={pairingChannel}
+            onChange={(event) => setPairingChannel(event.target.value)}
+            disabled={pairingInProgress}
+          >
+            <option value="telegram">Telegram</option>
+            <option value="discord">Discord</option>
+            <option value="slack">Slack</option>
+            <option value="whatsapp">WhatsApp</option>
+          </select>
+          <input
+            className="pairing-input"
+            type="text"
+            value={pairingCode}
+            onChange={(event) => setPairingCode(event.target.value)}
+            placeholder="Pairing code (e.g. XY2SNKZW)"
+            autoComplete="off"
+            spellCheck={false}
+            disabled={pairingInProgress}
+          />
+          <button className="btn btn-success" type="submit" disabled={pairingInProgress}>
+            {pairingInProgress && <ButtonSpinner />}
+            {pairingInProgress ? 'Approving...' : 'Approve Code'}
+          </button>
+        </form>
+        <p className="hint">
+          Use this for chat messages that say: &quot;openclaw pairing approve &lt;channel&gt;
+          &lt;code&gt;&quot;.
         </p>
       </section>
 

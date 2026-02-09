@@ -12,6 +12,8 @@ import { R2_MOUNT_PATH } from '../config';
 
 // CLI commands can take 10-15 seconds to complete due to WebSocket connection overhead
 const CLI_TIMEOUT_MS = 20000;
+const PAIRING_CODE_REGEX = /^[A-Z0-9]{6,16}$/;
+const SUPPORTED_PAIRING_CHANNELS = new Set(['telegram', 'discord', 'slack', 'whatsapp']);
 
 /**
  * API routes
@@ -189,6 +191,54 @@ adminApi.post('/devices/approve-all', async (c) => {
       approved: results.filter((r) => r.success).map((r) => r.requestId),
       failed: results.filter((r) => !r.success),
       message: `Approved ${approvedCount} of ${pending.length} device(s)`,
+    });
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    return c.json({ error: errorMessage }, 500);
+  }
+});
+
+// POST /api/admin/pairing/:channel/:code/approve - Approve a chat pairing code (e.g. Telegram DM code)
+adminApi.post('/pairing/:channel/:code/approve', async (c) => {
+  const sandbox = c.get('sandbox');
+  const channel = c.req.param('channel')?.toLowerCase();
+  const code = c.req.param('code')?.toUpperCase();
+
+  if (!channel || !SUPPORTED_PAIRING_CHANNELS.has(channel)) {
+    return c.json(
+      {
+        error: `Unsupported channel. Supported channels: ${Array.from(SUPPORTED_PAIRING_CHANNELS).join(', ')}`,
+      },
+      400,
+    );
+  }
+
+  if (!code || !PAIRING_CODE_REGEX.test(code)) {
+    return c.json({ error: 'Invalid pairing code format' }, 400);
+  }
+
+  try {
+    await ensureMoltbotGateway(sandbox, c.env);
+
+    const token = c.env.MOLTBOT_GATEWAY_TOKEN;
+    const tokenArg = token ? ` --token ${token}` : '';
+    const proc = await sandbox.startProcess(
+      `openclaw pairing approve ${channel} ${code} --url ws://localhost:18789${tokenArg}`,
+    );
+    await waitForProcess(proc, CLI_TIMEOUT_MS);
+
+    const logs = await proc.getLogs();
+    const stdout = logs.stdout || '';
+    const stderr = logs.stderr || '';
+    const success = stdout.toLowerCase().includes('approved') || proc.exitCode === 0;
+
+    return c.json({
+      success,
+      channel,
+      code,
+      message: success ? 'Pairing code approved' : 'Pairing approval may have failed',
+      stdout,
+      stderr,
     });
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';

@@ -433,6 +433,7 @@ The previous `AI_GATEWAY_API_KEY` + `AI_GATEWAY_BASE_URL` approach is still supp
 | `CF_ACCOUNT_ID` | No | Cloudflare account ID (required for R2 storage) |
 | `TELEGRAM_BOT_TOKEN` | No | Telegram bot token |
 | `TELEGRAM_DM_POLICY` | No | Telegram DM policy: `pairing` (default) or `open` |
+| `TELEGRAM_DM_ALLOW_FROM` | No | Comma-separated Telegram user IDs allowed when `TELEGRAM_DM_POLICY=open` (e.g. `1765092014`) |
 | `DISCORD_BOT_TOKEN` | No | Discord bot token |
 | `DISCORD_DM_POLICY` | No | Discord DM policy: `pairing` (default) or `open` |
 | `SLACK_BOT_TOKEN` | No | Slack bot token |
@@ -467,6 +468,8 @@ OpenClaw in Cloudflare Sandbox uses multiple authentication layers:
 **Access denied on admin routes:** Ensure `CF_ACCESS_TEAM_DOMAIN` and `CF_ACCESS_AUD` are set, and that your Cloudflare Access application is configured correctly.
 
 **Devices not appearing in admin UI:** Device list commands take 10-15 seconds due to WebSocket connection overhead. Wait and refresh.
+
+**Telegram pairing code not appearing in admin UI:** Telegram DM pairing uses `openclaw pairing approve <channel> <code>` (separate from `devices list`). In `/_admin/`, use **Approve Chat Pairing Code** and paste the Telegram code.
 
 **WebSocket issues in local development:** `wrangler dev` has known limitations with WebSocket proxying through the sandbox. HTTP requests work but WebSocket connections may fail. Deploy to Cloudflare for full functionality.
 

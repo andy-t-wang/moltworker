@@ -150,15 +150,45 @@
   align-items: center;
 }
 
+.pairing-form {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.pairing-select,
+.pairing-input {
+  background-color: var(--bg-color);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius);
+  padding: 0.5rem 0.75rem;
+  font-size: 0.875rem;
+}
+
+.pairing-select {
+  min-width: 130px;
+}
+
+.pairing-input {
+  min-width: 260px;
+  flex: 1;
+}
+
+.devices-section .hint {
+  margin: 0.75rem 0 0;
+  font-size: 0.875rem;
+  color: var(--text-muted);
+}
+
 /* Gateway section */
 .gateway-section {
   border-left: 3px solid var(--primary-color);
 }
 
 .gateway-section .hint {
-  margin: 0;
-  font-size: 0.875rem;
-  color: var(--text-muted);
+  margin-top: 0.75rem;
 }
 
 /* Empty state */
