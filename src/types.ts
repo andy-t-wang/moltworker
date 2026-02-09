@@ -33,6 +33,7 @@ export interface MoltbotEnv {
   // Cloudflare Access configuration for admin routes
   CF_ACCESS_TEAM_DOMAIN?: string; // e.g., 'myteam.cloudflareaccess.com'
   CF_ACCESS_AUD?: string; // Application Audience (AUD) tag
+  CF_ACCESS_ALLOWED_EMAILS?: string; // Optional comma-separated email allowlist for Access-authenticated users
   // R2 credentials for bucket mounting (set via wrangler secret)
   R2_ACCESS_KEY_ID?: string;
   R2_SECRET_ACCESS_KEY?: string;

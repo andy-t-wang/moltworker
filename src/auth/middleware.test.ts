@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { isDevMode, isE2ETestMode, extractJWT } from './middleware';
+import { isDevMode, isE2ETestMode, extractJWT, isAccessEmailAllowed } from './middleware';
 import type { MoltbotEnv } from '../types';
 import type { Context } from 'hono';
 import type { AppEnv } from '../types';
@@ -119,6 +119,30 @@ describe('extractJWT', () => {
     const jwt = 'spaced.payload.signature';
     const c = createMockContext({ cookies: `  CF_Authorization=${jwt}  ` });
     expect(extractJWT(c)).toBe(jwt);
+  });
+});
+
+describe('isAccessEmailAllowed', () => {
+  it('allows any email when allowlist is undefined', () => {
+    expect(isAccessEmailAllowed('user@example.com', undefined)).toBe(true);
+  });
+
+  it('allows any email when allowlist is empty', () => {
+    expect(isAccessEmailAllowed('user@example.com', '   ')).toBe(true);
+  });
+
+  it('allows matching email in allowlist', () => {
+    expect(isAccessEmailAllowed('user@example.com', 'user@example.com,other@example.com')).toBe(
+      true,
+    );
+  });
+
+  it('matches email case-insensitively', () => {
+    expect(isAccessEmailAllowed('User@Example.com', 'user@example.com')).toBe(true);
+  });
+
+  it('rejects email not in allowlist', () => {
+    expect(isAccessEmailAllowed('user@example.com', 'other@example.com')).toBe(false);
   });
 });
 

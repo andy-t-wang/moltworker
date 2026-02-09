@@ -32,6 +32,7 @@ MOLTBOT_GATEWAY_TOKEN=dev-token-change-in-prod
 # Required for admin UI and device pairing API in production
 # CF_ACCESS_TEAM_DOMAIN=myteam.cloudflareaccess.com
 # CF_ACCESS_AUD=your-application-audience-tag
+# CF_ACCESS_ALLOWED_EMAILS=you@example.com
 
 # Optional chat channels
 # TELEGRAM_BOT_TOKEN=optional

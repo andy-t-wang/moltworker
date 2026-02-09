@@ -27,6 +27,27 @@ export function isE2ETestMode(env: MoltbotEnv): boolean {
 }
 
 /**
+ * Check whether an authenticated Access user is allowed by optional email allowlist.
+ * Empty or missing allowlist means allow all authenticated users.
+ */
+export function isAccessEmailAllowed(email: string, allowlist?: string): boolean {
+  if (!allowlist || allowlist.trim() === '') {
+    return true;
+  }
+
+  const allowedEmails = allowlist
+    .split(',')
+    .map((value) => value.trim().toLowerCase())
+    .filter((value) => value.length > 0);
+
+  if (allowedEmails.length === 0) {
+    return true;
+  }
+
+  return allowedEmails.includes(email.toLowerCase());
+}
+
+/**
  * Extract JWT from request headers or cookies
  */
 export function extractJWT(c: Context<AppEnv>): string | null {
@@ -119,6 +140,31 @@ export function createAccessMiddleware(options: AccessMiddlewareOptions) {
     // Verify JWT
     try {
       const payload = await verifyAccessJWT(jwt, teamDomain, expectedAud);
+
+      if (!isAccessEmailAllowed(payload.email, c.env.CF_ACCESS_ALLOWED_EMAILS)) {
+        if (type === 'json') {
+          return c.json(
+            {
+              error: 'Forbidden',
+              hint: 'Your email is not allowed to access this worker',
+            },
+            403,
+          );
+        } else {
+          return c.html(
+            `
+          <html>
+            <body>
+              <h1>Forbidden</h1>
+              <p>Your email is not allowed to access this worker.</p>
+            </body>
+          </html>
+        `,
+            403,
+          );
+        }
+      }
+
       c.set('accessUser', { email: payload.email, name: payload.name });
       await next();
     } catch (err) {

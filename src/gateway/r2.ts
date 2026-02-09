@@ -65,6 +65,13 @@ export async function mountR2Storage(sandbox: Sandbox, env: MoltbotEnv): Promise
     const errorMessage = err instanceof Error ? err.message : String(err);
     console.log('R2 mount error:', errorMessage);
 
+    // Cloudflare may report this even when the mount is already present.
+    // Treat as success to avoid blocking startup and backup status.
+    if (errorMessage.includes('Mount path') && errorMessage.includes('already in use by bucket')) {
+      console.log('R2 mount path already in use, assuming bucket is mounted');
+      return true;
+    }
+
     // Check again if it's mounted - the error might be misleading
     if (await isR2Mounted(sandbox)) {
       console.log('R2 bucket is mounted despite error');
