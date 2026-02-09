@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { findExistingMoltbotProcess } from './process';
+import { findExistingMoltbotProcess, isDurableObjectCodeUpdateError } from './process';
 import type { Sandbox, Process } from '@cloudflare/sandbox';
 import { createMockSandbox } from '../test-utils';
 
@@ -114,6 +114,18 @@ describe('findExistingMoltbotProcess', () => {
     expect(result).toBeNull();
   });
 
+  it('throws durable object reset errors when configured to do so', async () => {
+    const sandbox = {
+      listProcesses: vi
+        .fn()
+        .mockRejectedValue(new Error('Durable Object reset because its code was updated.')),
+    } as unknown as Sandbox;
+
+    await expect(
+      findExistingMoltbotProcess(sandbox, { throwOnTransientError: true }),
+    ).rejects.toThrow('Durable Object reset because its code was updated.');
+  });
+
   it('returns first matching gateway process', async () => {
     const firstGateway = createFullMockProcess({
       id: 'gateway-1',
@@ -141,5 +153,17 @@ describe('findExistingMoltbotProcess', () => {
 
     const result = await findExistingMoltbotProcess(sandbox);
     expect(result).toBeNull();
+  });
+});
+
+describe('isDurableObjectCodeUpdateError', () => {
+  it('matches the Cloudflare Durable Object code update error message', () => {
+    expect(
+      isDurableObjectCodeUpdateError(new Error('Durable Object reset because its code was updated.')),
+    ).toBe(true);
+  });
+
+  it('returns false for non-transient errors', () => {
+    expect(isDurableObjectCodeUpdateError(new Error('Network error'))).toBe(false);
   });
 });

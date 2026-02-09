@@ -4,15 +4,65 @@ import { MOLTBOT_PORT, STARTUP_TIMEOUT_MS } from '../config';
 import { buildEnvVars } from './env';
 import { mountR2Storage } from './r2';
 
+const DURABLE_OBJECT_RESET_ERROR_FRAGMENT = 'durable object reset because its code was updated';
+const DURABLE_OBJECT_RETRY_DELAYS_MS = [250, 500, 1000] as const;
+
+interface FindExistingProcessOptions {
+  throwOnTransientError?: boolean;
+}
+
+function getErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return String(error);
+}
+
+export function isDurableObjectCodeUpdateError(error: unknown): boolean {
+  return getErrorMessage(error).toLowerCase().includes(DURABLE_OBJECT_RESET_ERROR_FRAGMENT);
+}
+
+async function sleep(ms: number): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function withDurableObjectResetRetry<T>(
+  operationName: string,
+  operation: () => Promise<T>,
+  attempt: number = 0,
+): Promise<T> {
+  try {
+    return await operation();
+  } catch (error) {
+    if (!isDurableObjectCodeUpdateError(error) || attempt >= DURABLE_OBJECT_RETRY_DELAYS_MS.length) {
+      throw error;
+    }
+
+    const delayMs = DURABLE_OBJECT_RETRY_DELAYS_MS[attempt];
+    console.warn(
+      `[Gateway] ${operationName} hit transient Durable Object reset; retrying in ${delayMs}ms (attempt ${attempt + 1}/${DURABLE_OBJECT_RETRY_DELAYS_MS.length + 1})`,
+    );
+    await sleep(delayMs);
+    return withDurableObjectResetRetry(operationName, operation, attempt + 1);
+  }
+}
+
 /**
  * Find an existing OpenClaw gateway process
  *
  * @param sandbox - The sandbox instance
  * @returns The process if found and running/starting, null otherwise
  */
-export async function findExistingMoltbotProcess(sandbox: Sandbox): Promise<Process | null> {
+export async function findExistingMoltbotProcess(
+  sandbox: Sandbox,
+  options: FindExistingProcessOptions = {},
+): Promise<Process | null> {
+  const { throwOnTransientError = false } = options;
+
   try {
-    const processes = await sandbox.listProcesses();
+    const processes = await withDurableObjectResetRetry('listProcesses', async () =>
+      sandbox.listProcesses(),
+    );
     for (const proc of processes) {
       // Match gateway process (openclaw gateway or legacy clawdbot gateway)
       // Don't match CLI commands like "openclaw devices list"
@@ -36,6 +86,9 @@ export async function findExistingMoltbotProcess(sandbox: Sandbox): Promise<Proc
       }
     }
   } catch (e) {
+    if (throwOnTransientError && isDurableObjectCodeUpdateError(e)) {
+      throw e;
+    }
     console.log('Could not list processes:', e);
   }
   return null;
@@ -54,12 +107,18 @@ export async function findExistingMoltbotProcess(sandbox: Sandbox): Promise<Proc
  * @returns The running gateway process
  */
 export async function ensureMoltbotGateway(sandbox: Sandbox, env: MoltbotEnv): Promise<Process> {
+  return withDurableObjectResetRetry('ensureMoltbotGateway', async () =>
+    ensureMoltbotGatewayOnce(sandbox, env),
+  );
+}
+
+async function ensureMoltbotGatewayOnce(sandbox: Sandbox, env: MoltbotEnv): Promise<Process> {
   // Mount R2 storage for persistent data (non-blocking if not configured)
   // R2 is used as a backup - the startup script will restore from it on boot
   await mountR2Storage(sandbox, env);
 
   // Check if gateway is already running or starting
-  const existingProcess = await findExistingMoltbotProcess(sandbox);
+  const existingProcess = await findExistingMoltbotProcess(sandbox, { throwOnTransientError: true });
   if (existingProcess) {
     console.log(
       'Found existing gateway process:',
@@ -76,8 +135,11 @@ export async function ensureMoltbotGateway(sandbox: Sandbox, env: MoltbotEnv): P
       await existingProcess.waitForPort(MOLTBOT_PORT, { mode: 'tcp', timeout: STARTUP_TIMEOUT_MS });
       console.log('Gateway is reachable');
       return existingProcess;
-      // eslint-disable-next-line no-unused-vars
-    } catch (_e) {
+    } catch (waitError) {
+      if (isDurableObjectCodeUpdateError(waitError)) {
+        throw waitError;
+      }
+
       // Timeout waiting for port - process is likely dead or stuck, kill and restart
       console.log('Existing process not reachable after full timeout, killing and restarting...');
       try {
@@ -117,6 +179,10 @@ export async function ensureMoltbotGateway(sandbox: Sandbox, env: MoltbotEnv): P
     if (logs.stdout) console.log('[Gateway] stdout:', logs.stdout);
     if (logs.stderr) console.log('[Gateway] stderr:', logs.stderr);
   } catch (e) {
+    if (isDurableObjectCodeUpdateError(e)) {
+      throw e;
+    }
+
     console.error('[Gateway] waitForPort failed:', e);
     try {
       const logs = await process.getLogs();
