@@ -2,6 +2,8 @@
 
 Guidelines for AI agents working on this codebase.
 
+Use pnpm for package management. Run `pnpm install` to set up dependencies.
+
 ## Project Overview
 
 This is a Cloudflare Worker that runs [OpenClaw](https://github.com/openclaw/openclaw) (formerly Moltbot/Clawdbot) in a Cloudflare Sandbox container. It provides:
