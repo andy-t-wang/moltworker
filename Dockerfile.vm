@@ -1,0 +1,28 @@
+FROM node:22-bookworm-slim
+
+ENV NODE_ENV=production
+
+# Install runtime tools:
+# - tini: proper PID 1 signal handling
+# - rsync: used by backup workflows
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates tini rsync git \
+    && rm -rf /var/lib/apt/lists/*
+
+# Pin OpenClaw version for reproducible VM deploys
+RUN npm install -g openclaw@2026.2.3 \
+    && openclaw --version
+
+# Prepare persistent paths + default skills seed
+RUN mkdir -p /root/.openclaw /root/clawd/skills /opt/default-skills
+COPY skills/ /opt/default-skills/
+
+# VM startup entrypoint (onboard + config patch + gateway boot)
+COPY start-openclaw-vm.sh /usr/local/bin/start-openclaw-vm.sh
+RUN chmod +x /usr/local/bin/start-openclaw-vm.sh
+
+WORKDIR /root/clawd
+EXPOSE 18789
+
+ENTRYPOINT ["/usr/bin/tini", "--"]
+CMD ["/usr/local/bin/start-openclaw-vm.sh"]

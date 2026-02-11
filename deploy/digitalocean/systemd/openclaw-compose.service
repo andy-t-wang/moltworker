@@ -1,0 +1,16 @@
+[Unit]
+Description=OpenClaw Docker Compose Stack
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/opt/moltworker/deploy/digitalocean
+ExecStart=/usr/bin/docker compose --env-file .env up -d --build
+ExecStop=/usr/bin/docker compose --env-file .env down
+TimeoutStartSec=0
+
+[Install]
+WantedBy=multi-user.target

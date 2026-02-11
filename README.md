@@ -6,6 +6,14 @@ Run [OpenClaw](https://github.com/openclaw/openclaw) (formerly Moltbot, formerly
 
 > **Experimental:** This is a proof of concept demonstrating that OpenClaw can run in Cloudflare Sandbox. It is not officially supported and may break without notice. Use at your own risk.
 
+## DigitalOcean (Persistent VM) Path
+
+If you need a stable 24/7 runtime with persistent filesystem and SSH/desktop access, use the DigitalOcean VM deployment instead of Cloudflare Sandbox:
+
+- Guide: [`docs/digitalocean-migration.md`](./docs/digitalocean-migration.md)
+- VM image: [`Dockerfile.vm`](./Dockerfile.vm)
+- Compose stack: [`deploy/digitalocean/docker-compose.yml`](./deploy/digitalocean/docker-compose.yml)
+
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/cloudflare/moltworker)
 
 ## Requirements

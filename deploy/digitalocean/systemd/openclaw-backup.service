@@ -1,0 +1,9 @@
+[Unit]
+Description=OpenClaw host backup
+After=openclaw-compose.service
+
+[Service]
+Type=oneshot
+Environment=OPENCLAW_DATA_ROOT=/opt/openclaw
+Environment=OPENCLAW_BACKUP_ROOT=/opt/openclaw-backups
+ExecStart=/opt/moltworker/deploy/digitalocean/scripts/backup-openclaw.sh

@@ -1,0 +1,10 @@
+[Unit]
+Description=Run OpenClaw backup every 15 minutes
+
+[Timer]
+OnCalendar=*:0/15
+Persistent=true
+Unit=openclaw-backup.service
+
+[Install]
+WantedBy=timers.target

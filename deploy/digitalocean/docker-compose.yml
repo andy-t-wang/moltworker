@@ -1,0 +1,33 @@
+name: openclaw-vm
+
+services:
+  openclaw:
+    build:
+      context: ../..
+      dockerfile: Dockerfile.vm
+    image: openclaw-vm:latest
+    container_name: openclaw
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      OPENCLAW_GATEWAY_PORT: ${OPENCLAW_GATEWAY_PORT:-18789}
+      OPENCLAW_BIND: ${OPENCLAW_BIND:-0.0.0.0}
+      OPENCLAW_VERBOSE: ${OPENCLAW_VERBOSE:-true}
+      OPENCLAW_CONFIG_DIR: /root/.openclaw
+      OPENCLAW_WORKSPACE_DIR: /root/clawd
+    ports:
+      - "${OPENCLAW_PUBLIC_BIND:-0.0.0.0}:${OPENCLAW_PUBLIC_PORT:-18789}:18789"
+    volumes:
+      - ${OPENCLAW_CONFIG_PATH:-/opt/openclaw/config}:/root/.openclaw
+      - ${OPENCLAW_WORKSPACE_PATH:-/opt/openclaw/workspace}:/root/clawd
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "node -e \"const n=require('net');const s=n.createConnection({host:'127.0.0.1',port:18789},()=>{s.end();process.exit(0)});s.on('error',()=>process.exit(1));setTimeout(()=>process.exit(1),1500);\"",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s

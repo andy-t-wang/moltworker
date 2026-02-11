@@ -17,7 +17,11 @@
     "format:check": "oxfmt --check src/",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "vm:up": "docker compose -f deploy/digitalocean/docker-compose.yml --env-file deploy/digitalocean/.env up -d --build",
+    "vm:down": "docker compose -f deploy/digitalocean/docker-compose.yml --env-file deploy/digitalocean/.env down",
+    "vm:logs": "docker compose -f deploy/digitalocean/docker-compose.yml --env-file deploy/digitalocean/.env logs -f openclaw",
+    "vm:restart": "docker compose -f deploy/digitalocean/docker-compose.yml --env-file deploy/digitalocean/.env restart openclaw"
   },
   "dependencies": {
     "@cloudflare/puppeteer": "^1.0.5",
