@@ -50,8 +50,28 @@ cp deploy/digitalocean/.env.example deploy/digitalocean/.env
 
 Edit `deploy/digitalocean/.env` with at least:
 - `OPENCLAW_GATEWAY_TOKEN`
-- one provider key (`ANTHROPIC_API_KEY` or `OPENAI_API_KEY`)
+- one provider key (`ANTHROPIC_API_KEY`, `ZAI_API_KEY`, or `OPENAI_API_KEY`)
 - optional channel tokens (`TELEGRAM_BOT_TOKEN`, etc.)
+
+For a lower-cost Anthropic setup on a droplet, start with:
+
+```bash
+OPENCLAW_HEARTBEAT_EVERY=3h
+OPENCLAW_CONTEXT_TOKENS=80000
+OPENCLAW_CONTEXT_PRUNING_MODE=cache-ttl
+OPENCLAW_CONTEXT_PRUNING_TTL=1h
+OPENCLAW_HEARTBEAT_MODEL=zai/glm-4.7
+# Keep your main chat model higher quality unless you want all chats cheaper too:
+# OPENCLAW_DEFAULT_MODEL=zai/glm-4.7
+# OPENCLAW_MAX_CONCURRENT=1
+# OPENCLAW_SUBAGENT_MAX_CONCURRENT=1
+```
+
+Notes:
+- `agents.defaults.contextTokens` is the OpenClaw knob for context budget. If you were planning to run `openclaw config set agents.defaults.maxContextTokens ...`, use `OPENCLAW_CONTEXT_TOKENS` instead.
+- Using a cheaper `OPENCLAW_HEARTBEAT_MODEL` is usually a better first move than downgrading the main model for all conversations.
+- `zai/glm-4.7` is a documented budget model in OpenClaw. If you use it for heartbeat/sub-agents, set `ZAI_API_KEY` in the same `.env`.
+- If you do not need proactive heartbeat behavior, increase `OPENCLAW_HEARTBEAT_EVERY` further or set the equivalent config value to `0m` to disable it.
 
 ## 4) Start OpenClaw on VM
 

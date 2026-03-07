@@ -16,6 +16,9 @@ services:
       OPENCLAW_VERBOSE: ${OPENCLAW_VERBOSE:-true}
       OPENCLAW_CONFIG_DIR: /root/.openclaw
       OPENCLAW_WORKSPACE_DIR: /root/clawd
+      # Avoid leaking host mount vars into runtime config resolution.
+      OPENCLAW_CONFIG_PATH: /root/.openclaw/openclaw.json
+      OPENCLAW_WORKSPACE_PATH: /root/clawd
     ports:
       - "${OPENCLAW_PUBLIC_BIND:-0.0.0.0}:${OPENCLAW_PUBLIC_PORT:-18789}:18789"
     volumes:

@@ -39,19 +39,29 @@ describe('syncToR2', () => {
   });
 
   describe('sanity checks', () => {
-    it('returns error when source has no config file', async () => {
+    it('syncs workspace/skills even when no config file exists', async () => {
       const { sandbox, startProcessMock } = createMockSandbox();
+      const timestamp = '2026-01-27T12:00:00+00:00';
       startProcessMock
         .mockResolvedValueOnce(createMockProcess('s3fs on /data/moltbot type fuse.s3fs\n'))
-        .mockResolvedValueOnce(createMockProcess('', { exitCode: 1 })) // No openclaw.json
-        .mockResolvedValueOnce(createMockProcess('', { exitCode: 1 })); // No clawdbot.json either
+        .mockResolvedValueOnce(createMockProcess('missing')) // No openclaw.json
+        .mockResolvedValueOnce(createMockProcess('missing')) // No clawdbot.json either
+        .mockResolvedValueOnce(createMockProcess('')) // rsync workspace/skills only
+        .mockResolvedValueOnce(createMockProcess(timestamp)); // timestamp marker
 
       const env = createMockEnvWithR2();
 
       const result = await syncToR2(sandbox, env);
 
-      expect(result.success).toBe(false);
-      expect(result.error).toBe('Sync aborted: no config file found');
+      expect(result.success).toBe(true);
+      expect(result.lastSync).toBe(timestamp);
+
+      // Fourth call should be rsync command without config directory sync
+      const rsyncCall = startProcessMock.mock.calls[3][0];
+      expect(rsyncCall).not.toContain('/root/.openclaw/');
+      expect(rsyncCall).not.toContain('/root/.clawdbot/');
+      expect(rsyncCall).toContain('/root/clawd/');
+      expect(rsyncCall).toContain('/data/moltbot/workspace/');
     });
   });
 
@@ -63,7 +73,7 @@ describe('syncToR2', () => {
       // Calls: mount check, check openclaw.json, rsync, cat timestamp
       startProcessMock
         .mockResolvedValueOnce(createMockProcess('s3fs on /data/moltbot type fuse.s3fs\n'))
-        .mockResolvedValueOnce(createMockProcess('ok'))
+        .mockResolvedValueOnce(createMockProcess('exists'))
         .mockResolvedValueOnce(createMockProcess(''))
         .mockResolvedValueOnce(createMockProcess(timestamp));
 
@@ -81,7 +91,7 @@ describe('syncToR2', () => {
       // Calls: mount check, check openclaw.json, rsync (fails), cat timestamp (empty)
       startProcessMock
         .mockResolvedValueOnce(createMockProcess('s3fs on /data/moltbot type fuse.s3fs\n'))
-        .mockResolvedValueOnce(createMockProcess('ok'))
+        .mockResolvedValueOnce(createMockProcess('exists'))
         .mockResolvedValueOnce(createMockProcess('', { exitCode: 1 }))
         .mockResolvedValueOnce(createMockProcess(''));
 
@@ -99,7 +109,7 @@ describe('syncToR2', () => {
 
       startProcessMock
         .mockResolvedValueOnce(createMockProcess('s3fs on /data/moltbot type fuse.s3fs\n'))
-        .mockResolvedValueOnce(createMockProcess('ok'))
+        .mockResolvedValueOnce(createMockProcess('exists'))
         .mockResolvedValueOnce(createMockProcess(''))
         .mockResolvedValueOnce(createMockProcess(timestamp));
 
@@ -114,6 +124,24 @@ describe('syncToR2', () => {
       expect(rsyncCall).toContain('--delete');
       expect(rsyncCall).toContain('/root/.openclaw/');
       expect(rsyncCall).toContain('/data/moltbot/openclaw/');
+    });
+
+    it('uses stdout marker for config checks even if exitCode is stale', async () => {
+      const { sandbox, startProcessMock } = createMockSandbox();
+      const timestamp = '2026-01-27T12:00:00+00:00';
+
+      // Simulate stale/non-zero exit code while stdout confirms the file exists
+      startProcessMock
+        .mockResolvedValueOnce(createMockProcess('s3fs on /data/moltbot type fuse.s3fs\n'))
+        .mockResolvedValueOnce(createMockProcess('exists', { exitCode: 1 }))
+        .mockResolvedValueOnce(createMockProcess(''))
+        .mockResolvedValueOnce(createMockProcess(timestamp));
+
+      const env = createMockEnvWithR2();
+      const result = await syncToR2(sandbox, env);
+
+      expect(result.success).toBe(true);
+      expect(result.lastSync).toBe(timestamp);
     });
   });
 });

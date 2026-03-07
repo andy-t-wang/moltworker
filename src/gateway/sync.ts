@@ -11,6 +11,58 @@ export interface SyncResult {
   details?: string;
 }
 
+const TRANSIENT_SYNC_ERROR_FRAGMENTS = [
+  'durable object reset because its code was updated',
+  'network connection lost',
+] as const;
+const TRANSIENT_SYNC_RETRY_DELAYS_MS = [250, 500, 1000] as const;
+
+function getErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return String(error);
+}
+
+function isTransientSyncError(error: unknown): boolean {
+  const message = getErrorMessage(error).toLowerCase();
+  return TRANSIENT_SYNC_ERROR_FRAGMENTS.some((fragment) => message.includes(fragment));
+}
+
+async function sleep(ms: number): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function withTransientSyncRetry<T>(
+  operationName: string,
+  operation: () => Promise<T>,
+  attempt: number = 0,
+): Promise<T> {
+  try {
+    return await operation();
+  } catch (error) {
+    if (!isTransientSyncError(error) || attempt >= TRANSIENT_SYNC_RETRY_DELAYS_MS.length) {
+      throw error;
+    }
+
+    const delayMs = TRANSIENT_SYNC_RETRY_DELAYS_MS[attempt];
+    console.warn(
+      `[sync] ${operationName} hit transient error; retrying in ${delayMs}ms (attempt ${attempt + 1}/${TRANSIENT_SYNC_RETRY_DELAYS_MS.length + 1})`,
+    );
+    await sleep(delayMs);
+    return withTransientSyncRetry(operationName, operation, attempt + 1);
+  }
+}
+
+async function fileExists(sandbox: Sandbox, path: string): Promise<boolean> {
+  const proc = await withTransientSyncRetry('file-exists-check', async () =>
+    sandbox.startProcess(`if [ -f '${path}' ]; then echo exists; else echo missing; fi`),
+  );
+  await waitForProcess(proc, 5000);
+  const logs = await withTransientSyncRetry('file-exists-logs', async () => proc.getLogs());
+  return logs.stdout?.trim().toLowerCase().includes('exists') ?? false;
+}
+
 /**
  * Sync OpenClaw config and workspace from container to R2 for persistence.
  *
@@ -30,6 +82,10 @@ export interface SyncResult {
  * @returns SyncResult with success status and optional error details
  */
 export async function syncToR2(sandbox: Sandbox, env: MoltbotEnv): Promise<SyncResult> {
+  return withTransientSyncRetry('syncToR2', async () => syncToR2Once(sandbox, env));
+}
+
+async function syncToR2Once(sandbox: Sandbox, env: MoltbotEnv): Promise<SyncResult> {
   // Check if R2 is configured
   if (!env.R2_ACCESS_KEY_ID || !env.R2_SECRET_ACCESS_KEY || !env.CF_ACCOUNT_ID) {
     return { success: false, error: 'R2 storage is not configured' };
@@ -43,22 +99,18 @@ export async function syncToR2(sandbox: Sandbox, env: MoltbotEnv): Promise<SyncR
 
   // Determine which config directory exists
   // Check new path first, fall back to legacy
-  // Use exit code (0 = exists) rather than stdout parsing to avoid log-flush races
-  let configDir = '/root/.openclaw';
+  let configDir: string | null = '/root/.openclaw';
   try {
-    const checkNew = await sandbox.startProcess('test -f /root/.openclaw/openclaw.json');
-    await waitForProcess(checkNew, 5000);
-    if (checkNew.exitCode !== 0) {
-      const checkLegacy = await sandbox.startProcess('test -f /root/.clawdbot/clawdbot.json');
-      await waitForProcess(checkLegacy, 5000);
-      if (checkLegacy.exitCode === 0) {
+    const hasOpenClawConfig = await fileExists(sandbox, '/root/.openclaw/openclaw.json');
+    if (!hasOpenClawConfig) {
+      const hasLegacyConfig = await fileExists(sandbox, '/root/.clawdbot/clawdbot.json');
+      if (hasLegacyConfig) {
         configDir = '/root/.clawdbot';
       } else {
-        return {
-          success: false,
-          error: 'Sync aborted: no config file found',
-          details: 'Neither openclaw.json nor clawdbot.json found in config directory.',
-        };
+        // Don't fail the entire sync; keep backing up workspace/skills so user data persists.
+        // We intentionally skip config rsync to avoid deleting existing config backup with empty data.
+        console.warn('[sync] No config file found; syncing workspace/skills only');
+        configDir = null;
       }
     }
   } catch (err) {
@@ -71,22 +123,39 @@ export async function syncToR2(sandbox: Sandbox, env: MoltbotEnv): Promise<SyncR
 
   // Sync to the new openclaw/ R2 prefix (even if source is legacy .clawdbot)
   // Also sync workspace directory (excluding skills since they're synced separately)
-  const syncCmd = `rsync -r --no-times --delete --exclude='*.lock' --exclude='*.log' --exclude='*.tmp' ${configDir}/ ${R2_MOUNT_PATH}/openclaw/ && rsync -r --no-times --delete --exclude='skills' /root/clawd/ ${R2_MOUNT_PATH}/workspace/ && rsync -r --no-times --delete /root/clawd/skills/ ${R2_MOUNT_PATH}/skills/ && date -Iseconds > ${R2_MOUNT_PATH}/.last-sync`;
+  const syncParts: string[] = [];
+  if (configDir) {
+    syncParts.push(
+      `rsync -r --no-times --delete --exclude='*.lock' --exclude='*.log' --exclude='*.tmp' ${configDir}/ ${R2_MOUNT_PATH}/openclaw/`,
+    );
+  }
+  syncParts.push(
+    `rsync -r --no-times --delete --exclude='skills' /root/clawd/ ${R2_MOUNT_PATH}/workspace/`,
+  );
+  syncParts.push(`rsync -r --no-times --delete /root/clawd/skills/ ${R2_MOUNT_PATH}/skills/`);
+  syncParts.push(`date -Iseconds > ${R2_MOUNT_PATH}/.last-sync`);
+  const syncCmd = syncParts.join(' && ');
 
   try {
-    const proc = await sandbox.startProcess(syncCmd);
+    const proc = await withTransientSyncRetry('sync-start-process', async () =>
+      sandbox.startProcess(syncCmd),
+    );
     await waitForProcess(proc, 30000); // 30 second timeout for sync
 
     // Check for success by reading the timestamp file
-    const timestampProc = await sandbox.startProcess(`cat ${R2_MOUNT_PATH}/.last-sync`);
+    const timestampProc = await withTransientSyncRetry('sync-timestamp-process', async () =>
+      sandbox.startProcess(`cat ${R2_MOUNT_PATH}/.last-sync`),
+    );
     await waitForProcess(timestampProc, 5000);
-    const timestampLogs = await timestampProc.getLogs();
+    const timestampLogs = await withTransientSyncRetry('sync-timestamp-logs', async () =>
+      timestampProc.getLogs(),
+    );
     const lastSync = timestampLogs.stdout?.trim();
 
     if (lastSync && lastSync.match(/^\d{4}-\d{2}-\d{2}/)) {
       return { success: true, lastSync };
     } else {
-      const logs = await proc.getLogs();
+      const logs = await withTransientSyncRetry('sync-process-logs', async () => proc.getLogs());
       return {
         success: false,
         error: 'Sync failed',

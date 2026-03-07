@@ -21,6 +21,18 @@ GATEWAY_BIND="${OPENCLAW_BIND:-0.0.0.0}"
 echo "Config directory: ${CONFIG_DIR}"
 echo "Workspace directory: ${WORKSPACE_DIR}"
 
+# Kimi (Moonshot) compatibility aliases.
+# If KIMI_* is set, map to OPENAI-compatible env vars used below.
+if [ -z "${OPENAI_API_KEY:-}" ] && [ -n "${KIMI_API_KEY:-}" ]; then
+  export OPENAI_API_KEY="${KIMI_API_KEY}"
+fi
+if [ -z "${OPENAI_BASE_URL:-}" ] && [ -n "${KIMI_BASE_URL:-}" ]; then
+  export OPENAI_BASE_URL="${KIMI_BASE_URL}"
+fi
+if [ -z "${OPENAI_MODEL:-}" ] && [ -n "${KIMI_MODEL:-}" ]; then
+  export OPENAI_MODEL="${KIMI_MODEL}"
+fi
+
 mkdir -p "${CONFIG_DIR}" "${WORKSPACE_DIR}" "${SKILLS_DIR}"
 
 if [ -d "${DEFAULT_SKILLS_DIR}" ] && [ -z "$(ls -A "${SKILLS_DIR}" 2>/dev/null)" ]; then
@@ -43,6 +55,8 @@ if [ ! -f "${CONFIG_FILE}" ]; then
     )
   elif [ -n "${ANTHROPIC_API_KEY:-}" ]; then
     AUTH_ARGS=(--auth-choice apiKey --anthropic-api-key "${ANTHROPIC_API_KEY}")
+  elif [ -n "${ZAI_API_KEY:-}" ]; then
+    AUTH_ARGS=(--auth-choice zai-api-key --zai-api-key "${ZAI_API_KEY}")
   elif [ -n "${OPENAI_API_KEY:-}" ]; then
     AUTH_ARGS=(--auth-choice openai-api-key --openai-api-key "${OPENAI_API_KEY}")
   fi
@@ -78,6 +92,32 @@ try {
 
 config.gateway = config.gateway || {};
 config.channels = config.channels || {};
+
+function ensureAgentDefaults() {
+  config.agents = config.agents || {};
+  config.agents.defaults = config.agents.defaults || {};
+  return config.agents.defaults;
+}
+
+function ensurePrimaryModelConfig(value) {
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    return value;
+  }
+  if (typeof value === 'string' && value) {
+    return { primary: value };
+  }
+  return {};
+}
+
+function parsePositiveInt(value, envName) {
+  if (!value) return undefined;
+  const parsed = Number(value);
+  if (Number.isInteger(parsed) && parsed > 0) {
+    return parsed;
+  }
+  console.log(`Ignoring invalid ${envName}: expected a positive integer, got "${value}"`);
+  return undefined;
+}
 
 config.gateway.port = gatewayPort;
 config.gateway.mode = 'local';
@@ -122,9 +162,106 @@ if (process.env.CF_AI_GATEWAY_MODEL) {
         api,
         models: [{ id: modelId, name: modelId, contextWindow: 131072, maxTokens: 8192 }],
       };
-      config.agents = config.agents || {};
-      config.agents.defaults = config.agents.defaults || {};
-      config.agents.defaults.model = { primary: `${providerName}/${modelId}` };
+      const defaults = ensureAgentDefaults();
+      const model = ensurePrimaryModelConfig(defaults.model);
+      model.primary = `${providerName}/${modelId}`;
+      defaults.model = model;
+    }
+  }
+}
+
+if (process.env.OPENAI_API_KEY && process.env.OPENAI_BASE_URL && process.env.OPENAI_MODEL) {
+  const providerName = 'openai-compatible';
+
+  config.models = config.models || {};
+  config.models.providers = config.models.providers || {};
+  config.models.providers[providerName] = {
+    baseUrl: process.env.OPENAI_BASE_URL,
+    apiKey: process.env.OPENAI_API_KEY,
+    api: 'openai-completions',
+    models: [{ id: process.env.OPENAI_MODEL, name: process.env.OPENAI_MODEL, contextWindow: 131072, maxTokens: 8192 }],
+  };
+  const defaults = ensureAgentDefaults();
+  const model = ensurePrimaryModelConfig(defaults.model);
+  model.primary = `${providerName}/${process.env.OPENAI_MODEL}`;
+  defaults.model = model;
+}
+
+// Cost-tuning overrides for VM deployments. These are applied on every boot so
+// a simple .env change + container restart is enough to persist the policy.
+const defaultModelOverride = process.env.OPENCLAW_DEFAULT_MODEL;
+const heartbeatEveryOverride = process.env.OPENCLAW_HEARTBEAT_EVERY;
+const heartbeatModelOverride = process.env.OPENCLAW_HEARTBEAT_MODEL;
+const contextTokensOverride = parsePositiveInt(
+  process.env.OPENCLAW_CONTEXT_TOKENS,
+  'OPENCLAW_CONTEXT_TOKENS',
+);
+const maxConcurrentOverride = parsePositiveInt(
+  process.env.OPENCLAW_MAX_CONCURRENT,
+  'OPENCLAW_MAX_CONCURRENT',
+);
+const subagentMaxConcurrentOverride = parsePositiveInt(
+  process.env.OPENCLAW_SUBAGENT_MAX_CONCURRENT,
+  'OPENCLAW_SUBAGENT_MAX_CONCURRENT',
+);
+const contextPruningModeOverride = process.env.OPENCLAW_CONTEXT_PRUNING_MODE;
+const contextPruningTtlOverride = process.env.OPENCLAW_CONTEXT_PRUNING_TTL;
+const subagentModelOverride = process.env.OPENCLAW_SUBAGENT_MODEL;
+
+if (
+  defaultModelOverride ||
+  heartbeatEveryOverride ||
+  heartbeatModelOverride ||
+  contextTokensOverride !== undefined ||
+  maxConcurrentOverride !== undefined ||
+  subagentMaxConcurrentOverride !== undefined ||
+  contextPruningModeOverride ||
+  contextPruningTtlOverride ||
+  subagentModelOverride
+) {
+  const defaults = ensureAgentDefaults();
+
+  if (defaultModelOverride) {
+    const model = ensurePrimaryModelConfig(defaults.model);
+    model.primary = defaultModelOverride;
+    defaults.model = model;
+  }
+
+  if (heartbeatEveryOverride || heartbeatModelOverride) {
+    defaults.heartbeat = defaults.heartbeat || {};
+    if (heartbeatEveryOverride) {
+      defaults.heartbeat.every = heartbeatEveryOverride;
+    }
+    if (heartbeatModelOverride) {
+      defaults.heartbeat.model = heartbeatModelOverride;
+    }
+  }
+
+  if (contextTokensOverride !== undefined) {
+    defaults.contextTokens = contextTokensOverride;
+  }
+
+  if (maxConcurrentOverride !== undefined) {
+    defaults.maxConcurrent = maxConcurrentOverride;
+  }
+
+  if (contextPruningModeOverride || contextPruningTtlOverride) {
+    defaults.contextPruning = defaults.contextPruning || {};
+    if (contextPruningModeOverride) {
+      defaults.contextPruning.mode = contextPruningModeOverride;
+    }
+    if (contextPruningTtlOverride) {
+      defaults.contextPruning.ttl = contextPruningTtlOverride;
+    }
+  }
+
+  if (subagentModelOverride || subagentMaxConcurrentOverride !== undefined) {
+    defaults.subagents = defaults.subagents || {};
+    if (subagentModelOverride) {
+      defaults.subagents.model = subagentModelOverride;
+    }
+    if (subagentMaxConcurrentOverride !== undefined) {
+      defaults.subagents.maxConcurrent = subagentMaxConcurrentOverride;
     }
   }
 }

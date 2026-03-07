@@ -220,11 +220,9 @@ adminApi.post('/pairing/:channel/:code/approve', async (c) => {
   try {
     await ensureMoltbotGateway(sandbox, c.env);
 
-    const token = c.env.MOLTBOT_GATEWAY_TOKEN;
-    const tokenArg = token ? ` --token ${token}` : '';
-    const proc = await sandbox.startProcess(
-      `openclaw pairing approve ${channel} ${code} --url ws://localhost:18789${tokenArg}`,
-    );
+    // pairing approve does not accept --url/--token in OpenClaw 2026.1.x.
+    // It uses the local profile/gateway config in the running container.
+    const proc = await sandbox.startProcess(`openclaw pairing approve ${channel} ${code}`);
     await waitForProcess(proc, CLI_TIMEOUT_MS);
 
     const logs = await proc.getLogs();
